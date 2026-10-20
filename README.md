@@ -1,4 +1,4 @@
-# AutoTemp Guard
+# Guardiao
 
 Protótipo virtual de proteção para equipamentos de refrigeração, criado com ESP32 no Wokwi e AWS IoT Core.
 
