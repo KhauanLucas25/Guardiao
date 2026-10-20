@@ -1,0 +1,127 @@
+{
+  "version": 1,
+  "author": "AutoTemp Guard Cloud R4 OLED",
+  "editor": "wokwi",
+  "parts": [
+    { "type": "board-esp32-devkit-c-v4", "id": "esp", "top": 0, "left": 0, "attrs": {} },
+    {
+      "type": "wokwi-led",
+      "id": "l0",
+      "top": -80,
+      "left": 0,
+      "attrs": { "color": "green", "label": "Normal" }
+    },
+    { "type": "wokwi-resistor", "id": "r0", "top": -35, "left": 0, "attrs": { "value": "220" } },
+    {
+      "type": "wokwi-led",
+      "id": "l1",
+      "top": -80,
+      "left": 65,
+      "attrs": { "color": "yellow", "label": "Cloud" }
+    },
+    { "type": "wokwi-resistor", "id": "r1", "top": -35, "left": 65, "attrs": { "value": "220" } },
+    {
+      "type": "wokwi-led",
+      "id": "l2",
+      "top": -80,
+      "left": 130,
+      "attrs": { "color": "red", "label": "Bloqueio" }
+    },
+    { "type": "wokwi-resistor", "id": "r2", "top": -35, "left": 130, "attrs": { "value": "220" } },
+    {
+      "type": "wokwi-led",
+      "id": "l3",
+      "top": -80,
+      "left": 195,
+      "attrs": { "color": "white", "label": "Ventilador" }
+    },
+    { "type": "wokwi-resistor", "id": "r3", "top": -35, "left": 195, "attrs": { "value": "220" } },
+    {
+      "type": "wokwi-led",
+      "id": "l4",
+      "top": -80,
+      "left": 260,
+      "attrs": { "color": "cyan", "label": "Compressor" }
+    },
+    { "type": "wokwi-resistor", "id": "r4", "top": -35, "left": 260, "attrs": { "value": "220" } },
+    {
+      "type": "wokwi-led",
+      "id": "l5",
+      "top": -80,
+      "left": 325,
+      "attrs": { "color": "magenta", "label": "Degelo" }
+    },
+    { "type": "wokwi-resistor", "id": "r5", "top": -35, "left": 325, "attrs": { "value": "220" } },
+    {
+      "type": "wokwi-pushbutton",
+      "id": "b0",
+      "top": 280,
+      "left": 0,
+      "attrs": { "color": "blue", "label": "Ataque", "bounce": "0" }
+    },
+    {
+      "type": "wokwi-pushbutton",
+      "id": "b1",
+      "top": 280,
+      "left": 100,
+      "attrs": { "color": "blue", "label": "Porta", "bounce": "0" }
+    },
+    {
+      "type": "wokwi-pushbutton",
+      "id": "b2",
+      "top": 280,
+      "left": 200,
+      "attrs": { "color": "blue", "label": "Sensor", "bounce": "0" }
+    },
+    {
+      "type": "wokwi-pushbutton",
+      "id": "b3",
+      "top": 280,
+      "left": 300,
+      "attrs": { "color": "blue", "label": "Reconhecer", "bounce": "0" }
+    },
+    {
+      "type": "board-ssd1306",
+      "id": "oled",
+      "top": 41.54,
+      "left": 355.43,
+      "attrs": { "i2cAddress": "0x3c" }
+    }
+  ],
+  "connections": [
+    [ "esp:18", "r0:1", "green", [] ],
+    [ "r0:2", "l0:A", "green", [] ],
+    [ "l0:C", "esp:GND.1", "black", [] ],
+    [ "esp:19", "r1:1", "green", [] ],
+    [ "r1:2", "l1:A", "green", [] ],
+    [ "l1:C", "esp:GND.1", "black", [] ],
+    [ "esp:23", "r2:1", "green", [] ],
+    [ "r2:2", "l2:A", "green", [] ],
+    [ "l2:C", "esp:GND.1", "black", [] ],
+    [ "esp:25", "r3:1", "green", [] ],
+    [ "r3:2", "l3:A", "green", [] ],
+    [ "l3:C", "esp:GND.1", "black", [] ],
+    [ "esp:26", "r4:1", "green", [] ],
+    [ "r4:2", "l4:A", "green", [] ],
+    [ "l4:C", "esp:GND.1", "black", [] ],
+    [ "esp:33", "r5:1", "green", [] ],
+    [ "r5:2", "l5:A", "green", [] ],
+    [ "l5:C", "esp:GND.1", "black", [] ],
+    [ "esp:13", "b0:1.l", "blue", [] ],
+    [ "b0:2.l", "esp:GND.1", "black", [] ],
+    [ "esp:14", "b1:1.l", "blue", [] ],
+    [ "b1:2.l", "esp:GND.1", "black", [] ],
+    [ "esp:27", "b2:1.l", "blue", [] ],
+    [ "b2:2.l", "esp:GND.1", "black", [] ],
+    [ "esp:32", "b3:1.l", "blue", [] ],
+    [ "b3:2.l", "esp:GND.1", "black", [] ],
+    [ "esp:TX", "$serialMonitor:RX", "", [] ],
+    [ "esp:RX", "$serialMonitor:TX", "", [] ],
+    [ "oled:VCC", "esp:3V3", "red", [] ],
+    [ "oled:GND", "esp:GND.1", "black", [] ],
+    [ "oled:SDA", "esp:21", "blue", [] ],
+    [ "oled:SCL", "esp:22", "orange", [] ]
+  ],
+  "serialMonitor": { "collapse": false, "convertEol": false, "display": "always", "newline": "lf" },
+  "dependencies": {}
+}

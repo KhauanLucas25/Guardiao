@@ -1,0 +1,7 @@
+{
+  "endpoint": "SEU_ENDPOINT-ats.iot.SUA_REGIAO.amazonaws.com",
+  "client_id": "autotemp-f01",
+  "cert": "-----BEGIN CERTIFICATE-----\\certificado_da_aws\\n-----END CERTIFICATE-----\\n",
+  "key": "-----BEGIN PRIVATE KEY-----\\_A_CHAVE_REAL_\\n-----END PRIVATE KEY-----\\n",
+  "ca": "-----BEGIN CERTIFICATE-----\\nCERTIFICADO_RAIZ_AWS\\n-----END CERTIFICATE-----\\n"
+}

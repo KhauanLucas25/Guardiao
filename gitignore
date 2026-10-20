@@ -1,0 +1,36 @@
+# AutoTemp Guard - arquivos que nao devem ir para o GitHub
+
+# Pasta que guarda credenciais reais
+secrets/
+
+# Chaves e certificados AWS IoT
+*.key
+*.pem
+*.crt
+
+# Configuracao real usada no Monitor Serial
+config.local.json
+config.real.json
+
+# Variaveis locais, caso sejam usadas depois
+.env
+.env.*
+!.env.example
+
+# Configuracao local da AWS CLI
+.aws/
+
+# Arquivos temporarios e logs
+*.log
+*.tmp
+*.bak
+
+# Pastas de compilacao
+build/
+.pio/
+__pycache__/
+*.pyc
+
+# Arquivos do Windows/macOS
+Thumbs.db
+.DS_Store

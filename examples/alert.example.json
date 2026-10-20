@@ -1,0 +1,10 @@
+{
+  "device": "f01",
+  "event_id": "f01-exemplo-001",
+  "event": "PROTECTION_ACTIVATED",
+  "reason": "SETPOINT_BLOCKED",
+  "blocked": true,
+  "message": "Proteção local acionada; comando inseguro bloqueado.",
+  "sim_s": 120,
+  "ts": 1792245743
+}

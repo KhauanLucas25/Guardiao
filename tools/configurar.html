@@ -1,0 +1,60 @@
+<!doctype html><html lang="pt-BR"><meta charset="utf-8">
+<title>Configurar AutoTemp Guard</title>
+<style>body{font:16px system-ui;max-width:900px;margin:35px auto;padding:20px;
+background:#eef4f7;color:#163044}input,textarea{display:block;width:98%;margin:8px 0 20px;
+padding:10px}button{padding:12px;margin:5px}textarea{height:150px}</style>
+<h1>Configuração local do laboratório</h1>
+<p>Abra este arquivo no seu computador. Ele não envia arquivos para um servidor.
+Não cole certificados no código público do Wokwi. Não grave esta tela em vídeo.</p>
+<label>Endpoint AWS IoT, sem https:// ou porta<input id="endpoint"
+ placeholder="xxxxxxxx-ats.iot.us-east-2.amazonaws.com"></label>
+<label>Certificado do dispositivo (.pem.crt)<input id="cert" type="file"></label>
+<label>Chave privada (.private.key)<input id="key" type="file"></label>
+<label>AmazonRootCA1.pem<input id="ca" type="file"></label>
+<button id="make">Gerar linha para o monitor serial</button>
+<textarea id="output" readonly spellcheck="false"></textarea>
+<button id="clear">Limpar certificados da tela</button>
+<h2>Token do dashboard</h2><button id="token">Gerar token aleatório</button>
+<input id="secret" readonly><p>Copie para LAB_TOKEN da Lambda de leitura.
+Depois informe no dashboard. Não é uma chave de acesso IAM.</p>
+<h2>Pedido MQTT de teste</h2>
+<label>Alvo °C<input id="target" type="number" value="-19"></label>
+<label>Degelo<select id="heat"><option value="false">Desligado</option>
+<option value="true">Ligado</option></select></label>
+<button id="cmd">Gerar pedido</button><textarea id="command" readonly></textarea>
+<p>Publique somente em autotemp/f01/command pelo cliente MQTT da AWS, retain desmarcado.</p>
+<h2>Evento para testar a Lambda de ingestão</h2>
+<button id="sample">Gerar evento com horário atual</button>
+<textarea id="event" readonly></textarea>
+<script>
+const el=id=>document.getElementById(id);
+el('make').onclick=async()=>{
+ try{
+  const d={endpoint:el('endpoint').value.trim()};
+  for(const k of ['cert','key','ca']){
+   const f=el(k).files[0];if(!f)throw Error('Selecione '+k);
+   d[k]=await f.text();
+  }
+  if(!/^[a-z0-9-]+\.iot\.us-east-2\.amazonaws\.com$/.test(d.endpoint))
+   throw Error('Endpoint inválido');
+  el('output').value=JSON.stringify(d);
+ }catch(e){alert(e.message);}
+};
+el('clear').onclick=()=>{
+ el('output').value='';for(const k of ['cert','key','ca'])el(k).value='';
+};
+el('token').onclick=()=>{
+ const a=crypto.getRandomValues(new Uint8Array(24));
+ el('secret').value=Array.from(a,x=>x.toString(16).padStart(2,'0')).join('');
+};
+el('sample').onclick=()=>{
+ el('event').value=JSON.stringify({device:'f01',air:-18.4,food:-19,rate:.4,
+ sim_s:120,locked:false,valid:true,compressor:false,fan:false,defrost:false,
+ door:false,mode:'NORMAL',reason:'NORMAL',seq:Math.floor(Date.now()/1000),
+ boot:'abc123',ts:Math.floor(Date.now()/1000)},null,2);
+};
+el('cmd').onclick=()=>{
+ el('command').value=JSON.stringify({target:Number(el('target').value),
+  defrost:el('heat').value==='true',id:Math.floor(Date.now()/1000)});
+};
+</script></html>
