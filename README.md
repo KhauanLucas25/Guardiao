@@ -8,7 +8,7 @@ Um ataque ou falha no sistema central pode tentar alterar a operação de freeze
 
 ## Solução
 
-O AutoTemp Guard aplica regras de segurança diretamente no ESP32. Quando detecta uma solicitação insegura, ele bloqueia a ação localmente e envia um alerta para a AWS IoT Core.
+O Guardião aplica regras de segurança diretamente no ESP32. Quando detecta uma solicitação insegura, ele bloqueia a ação localmente e envia um alerta para a AWS IoT Core.
 
 A proteção continua funcionando mesmo sem conexão com a nuvem.
 
