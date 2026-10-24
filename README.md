@@ -53,4 +53,4 @@ A proteção continua funcionando mesmo sem conexão com a nuvem.
   "event_id": "ID_DO_ALERTA",
   "received": true
 }
-Atualizado em 20/10/2026
+Atualizado em 24/10/2026
