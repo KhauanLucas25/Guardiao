@@ -1,0 +1,7 @@
+secrets/
+*.pem
+*.key
+*.crt
+*.private
+config.json
+config.local.json

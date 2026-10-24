@@ -3,7 +3,9 @@
 #include <freertos/task.h>
 #include <freertos/semphr.h>
 #include <WiFiClientSecure.h>
-#include <PubSubClient.h>
+// Use aspas se PubSubClient.h/.cpp estiverem dentro do projeto Wokwi.
+// Caso use a biblioteca instalada pelo Library Manager, troque por <PubSubClient.h>.
+#include "PubSubClient.h"
 #include <ArduinoJson.h>
 #include <time.h>
 #include <cmath>
@@ -14,13 +16,11 @@
 #include "guard.hpp"
 
 const int GREEN=18, AMBER=19, RED=23, FAN=25, COMP=26, HEAT=33;
-const int ATTACK=13, DOOR=14, SENSOR=27, ACK=32;
-
-// DEFINIÇÃO EXATA DOS TÓPICOS
+// Botoes fisicos: todos usam INPUT_PULLUP e ligam o outro terminal ao GND.
+const int TEMP_UP=13, TEMP_DOWN=14, FAST_FREEZE=27, NORMAL_MODE=32;
 const char* ALERT_TOPIC="autotemp/f01/alerts";
-const char* ALERT_ACK_TOPIC="autotemp/f01/ack"; // <- É EXATAMENTE NESTE TÓPICO QUE A AWS DEVE PUBLICAR
+const char* ALERT_ACK_TOPIC="autotemp/f01/ack";
 const char* CMD="autotemp/f01/command";
-
 Plant plant;
 Guard guard;
 SemaphoreHandle_t mutex;
@@ -31,29 +31,33 @@ bool configured=false, online=true, pending=false, pendingBad=false;
 volatile bool connected=false;
 double requested=-19, pendingTarget=-19;
 bool requestDefrost=false, pendingDefrost=false;
+bool fastFreeze=false;
+bool pendingRemoteCommand=false;
 unsigned long requestAt=0;
 uint32_t lastCommand=0;
 String bootId;
 WiFiClientSecure tls;
 PubSubClient mqtt(tls);
 
+// Fila RAM limitada. Reiniciar apaga pendencias. Nao e armazenamento duravel.
+// ACK MQTT confirma recebimento; NUNCA chama guard.update(...,ack=true).
 struct AlertEvent {
   char id[80]={0};
   char reason[40]={0};
   double simSeconds=0;
-  long long timestamp=0;
+  long long timestamp=0; // 0 quando ainda nao ha horario NTP valido.
 };
-
 constexpr unsigned ALERT_CAPACITY=8;
 AlertEvent alerts[ALERT_CAPACITY];
 unsigned alertHead=0, alertCount=0;
 uint32_t alertSequence=0, droppedAlerts=0;
 
-void recordProtection(const Output& state) {
+// A AWS notifica somente bloqueios provocados pelo canal remoto.
+void recordProtection(const Output& state, bool remoteCommand) {
   static bool wasLocked=false;
   bool rising=state.locked && !wasLocked;
   wasLocked=state.locked;
-  if(!rising) return;
+  if(!rising || !remoteCommand) return;
   AlertEvent e;
   snprintf(e.id,sizeof(e.id),"f01-%s-%lu",bootId.c_str(),
            (unsigned long)++alertSequence);
@@ -75,6 +79,9 @@ void recordProtection(const Output& state) {
   }
 }
 
+// Nao publica temperaturas, nem heartbeat, nem mensagem inicial.
+// Retransmissoes: 30s, 60s, 120s, depois 300s entre tentativas.
+// Sem ACK, continua tentando. Consumira mensagens ate confirmar ou parar.
 void sendPendingAlert() {
   static String activeId="";
   static uint32_t attempts=0;
@@ -94,7 +101,7 @@ void sendPendingAlert() {
   d["event_id"]=e.id;
   d["event"]="PROTECTION_ACTIVATED";
   d["reason"]=e.reason;
-  d["blocked"]=true; 
+  d["blocked"]=true; // Estado no instante da ocorrencia, nao estado atual.
   d["message"]="Protecao acionada. Bloqueio local ativo na ocorrencia.";
   d["sim_s"]=e.simSeconds;
   if(e.timestamp) d["ts"]=e.timestamp;
@@ -127,9 +134,11 @@ void receiveAlertAck(byte* payload,unsigned int length) {
   }
   xSemaphoreGive(mutex);
   if(matches) { Serial.print("ALERTA_CONFIRMADO="); Serial.println(id); }
-  else { Serial.print("ALERTA_ACK_IGNORADO (ID nao bate): "); Serial.println(id); }
+  else Serial.println("ALERTA_ACK_IGNORADO");
 }
 
+
+// OLED local: GPIO21 SDA, GPIO22 SCL. Nao publica mensagens MQTT.
 constexpr int OLED_SDA=21, OLED_SCL=22;
 constexpr uint8_t OLED_ADDRESS=0x3C;
 Adafruit_SSD1306 oled(128,64,&Wire,-1);
@@ -141,7 +150,7 @@ void initDisplay() {
   Wire.beginTransmission(OLED_ADDRESS);
   if(Wire.endTransmission()!=0) {
     Serial.println("OLED_NAO_ENCONTRADO");
-    return;
+    return; // Falha da tela nao interrompe o controle.
   }
   oledReady=oled.begin(SSD1306_SWITCHCAPVCC,OLED_ADDRESS,false,false);
   if(!oledReady) {
@@ -189,12 +198,14 @@ void updateDisplay(const Output& state) {
   else oled.print("---");
   oled.print(" C");
   oled.setCursor(0,32);
-  oled.print("E:");
-  if(!state.valid) oled.print("FALHA SENSOR");
-  else if(state.mode=="RECOVERY_FAILED") oled.print("FALHA RECUPERACAO");
-  else oled.print(state.locked ? "PROTECAO" : "NORMAL");
+  oled.print("Ajuste: ");
+  oled.print(requested,1);
+  oled.print(" C");
   oled.setCursor(0,42);
-  oled.print(state.reason.c_str());
+  if(!state.valid) oled.print("E: FALHA SENSOR");
+  else if(state.locked) oled.print("E: PROTECAO");
+  else if(fastFreeze) oled.print("E: CONG. RAPIDO");
+  else oled.print("E: NORMAL");
   oled.setCursor(0,54);
   oled.print("AWS:");
   if(!enabled) oled.print("OFFLINE MANUAL");
@@ -204,24 +215,13 @@ void updateDisplay(const Output& state) {
   oled.display();
 }
 
-// CORRIGIDO: A leitura do payload bruto agora ocorre EXATAMENTE dentro do callback!
-void onMessage(char* topic, byte* payload, unsigned int length) {
-  Serial.print("\n[MQTT RX] Tópico recebido: "); 
-  Serial.println(topic);
-  
-  Serial.print("[MQTT RX] Payload bruto: ");
-  for (unsigned int i = 0; i < length; i++) {
-    Serial.print((char)payload[i]);
-  }
-  Serial.println();
 
-  if(strcmp(topic, ALERT_ACK_TOPIC) == 0) {
-    receiveAlertAck(payload, length); 
-    return;
+void onMessage(char* topic,byte* payload,unsigned int length) {
+  Serial.print("MQTT_RX_TOPICO="); Serial.println(topic);
+  if(strcmp(topic,ALERT_ACK_TOPIC)==0) {
+    receiveAlertAck(payload,length); return;
   }
-  
-  if(strcmp(topic, CMD) != 0) return;
-  
+  if(strcmp(topic,CMD)!=0) return;
   JsonDocument d;
   bool bad=length>256 || deserializeJson(d,payload,length);
   double target=-19; bool heat=false;
@@ -235,10 +235,14 @@ void onMessage(char* topic, byte* payload, unsigned int length) {
     }
   }
   xSemaphoreTake(mutex,portMAX_DELAY);
-  if(bad) pendingBad=true;
+  if(bad) {
+    pendingBad=true;
+    pendingRemoteCommand=true;
+  }
   else if(id>lastCommand) {
     lastCommand=id; pending=true;
     pendingTarget=target; pendingDefrost=heat;
+    pendingRemoteCommand=true;
   }
   xSemaphoreGive(mutex);
 }
@@ -256,7 +260,7 @@ void cloudTask(void*) {
   mqtt.setBufferSize(1024);
   mqtt.setSocketTimeout(30);
   mqtt.setKeepAlive(60);
-  mqtt.setCallback(onMessage); // O callback correto foi setado aqui.
+  mqtt.setCallback(onMessage);
 
   for(;;) {
     xSemaphoreTake(mutex,portMAX_DELAY);
@@ -277,6 +281,7 @@ void cloudTask(void*) {
       tls.setPrivateKey(key.c_str());
       mqtt.setServer(endpoint.c_str(),8883);
       WiFi.mode(WIFI_STA);
+      // Uma unica rotina gerencia tentativas para evitar reconexoes concorrentes.
       WiFi.setAutoReconnect(false);
       WiFi.setSleep(false);
       Serial.println("WIFI_INICIANDO_CANAL_6");
@@ -302,11 +307,12 @@ void cloudTask(void*) {
         Serial.println(wifiAttempts);
       }
       if(millis()-wifiAttemptAt>=30000UL) {
-        WiFi.disconnect(false,false); 
+        WiFi.disconnect(false,false); // Nao apaga configuracoes persistentes.
+        // Espera curta apenas na tarefa cloud; controle local continua.
         vTaskDelay(pdMS_TO_TICKS(100));
         ++wifiAttempts;
         Serial.println("WIFI_NOVA_TENTATIVA_BUSCA_AUTOMATICA");
-        WiFi.begin("Wokwi-GUEST",""); 
+        WiFi.begin("Wokwi-GUEST",""); // Busca o canal nas tentativas seguintes.
         wifiAttemptAt=millis();
       }
       vTaskDelay(pdMS_TO_TICKS(100));
@@ -345,11 +351,11 @@ void cloudTask(void*) {
         Serial.print("MQTT_DESCONECTADO_STATE=");
         Serial.println(mqtt.state());
         mqttReported=false;
-        mqttAttemptAt=millis(); 
+        mqttAttemptAt=millis(); // Espera 10s antes de reconectar.
         mqttAttempted=true;
       }
       if(!mqttAttempted || millis()-mqttAttemptAt>=10000UL) {
-        tls.stop(); 
+        tls.stop(); // Descarta transporte encerrado antes de uma nova tentativa.
         Serial.println("MQTT_TENTATIVA KEEPALIVE=60");
         bool ok=mqtt.connect("autotemp-f01");
         mqttAttemptAt=millis(); mqttAttempted=true;
@@ -357,10 +363,6 @@ void cloudTask(void*) {
         if(ok) {
           connected=true; mqttReported=true; lastMqttLoop=millis();
           Serial.println("MQTT_CONECTADO");
-          
-          Serial.print("[INFO] TOPICO DE ACK DEFINIDO COMO: ");
-          Serial.println(ALERT_ACK_TOPIC);
-          
           Serial.println(mqtt.subscribe(CMD) ?
                          "MQTT_SUBSCRIBE_ENVIADO" : "MQTT_SUBSCRIBE_FALHOU");
           Serial.println(mqtt.subscribe(ALERT_ACK_TOPIC,1) ?
@@ -382,7 +384,7 @@ void cloudTask(void*) {
       }
       lastMqttLoop=now;
       unsigned long loopStarted=millis();
-      bool loopOk=mqtt.loop(); 
+      bool loopOk=mqtt.loop(); // Sempre atende keep-alive e ACK, sem depender de alertas.
       if(millis()-loopStarted>2000UL) {
         Serial.print("MQTT_LOOP_DURACAO_MS=");
         Serial.println(millis()-loopStarted);
@@ -398,6 +400,16 @@ void cloudTask(void*) {
     }
     vTaskDelay(pdMS_TO_TICKS(20));
   }
+}
+
+void localSetpoint(double value, bool rapid=false) {
+  requested=constrain(value,-23.0,-16.0);
+  fastFreeze=rapid;
+  requestDefrost=false;
+  requestAt=millis();
+  Serial.print("AJUSTE_LOCAL_SETPOINT=");
+  Serial.print(requested,1);
+  Serial.println(rapid ? " CONGELAMENTO_RAPIDO" : " C");
 }
 
 bool handleLine(String line) {
@@ -421,9 +433,11 @@ bool handleLine(String line) {
     Serial.println("CONFIG_OK_SEM_IMPRIMIR_SEGREDOS"); return false;
   }
   line.toUpperCase();
-  if(line=="ATTACK") { requested=20; requestDefrost=true; requestAt=millis(); }
-  else if(line=="NORMAL") { requested=-19; requestDefrost=false; requestAt=millis(); }
-  else if(line=="DEFROST") { requestDefrost=true; requestAt=millis(); }
+  // Comandos seriais abaixo sao testes locais; eles nao criam alerta AWS.
+  if(line=="TEMP+") localSetpoint(requested+0.5);
+  else if(line=="TEMP-") localSetpoint(requested-0.5);
+  else if(line=="RAPIDO") localSetpoint(-23,true);
+  else if(line=="NORMAL") localSetpoint(-19,false);
   else if(line=="DOOR") plant.door=!plant.door;
   else if(line=="FAIL") plant.failure=true;
   else if(line=="SENSOR") plant.sensor=true;
@@ -443,11 +457,11 @@ bool handleLine(String line) {
 void setup() {
   Serial.setRxBufferSize(16384);
   Serial.begin(115200);
-  Serial.println("AUTOTEMP_BUILD_R6_WIFI_KEEPALIVE60_US_EAST_2");
+  Serial.println("AUTOTEMP_BUILD_R7_LOCAL_CONTROLS_US_EAST_2");
   for(int pin : {GREEN,AMBER,RED,FAN,COMP,HEAT}) {
     pinMode(pin,OUTPUT); digitalWrite(pin,LOW);
   }
-  for(int pin : {ATTACK,DOOR,SENSOR,ACK}) pinMode(pin,INPUT_PULLUP);
+  for(int pin : {TEMP_UP,TEMP_DOWN,FAST_FREEZE,NORMAL_MODE}) pinMode(pin,INPUT_PULLUP);
   mutex=xSemaphoreCreateMutex();
   if(!mutex) {
     Serial.println("ERRO_MEMORIA_MUTEX");
@@ -460,26 +474,30 @@ void setup() {
       (unsigned long)esp_random(),(unsigned long)esp_random());
   bootId=uniqueBoot;
   serialLine.reserve(12000);
+  // Prioridade 0 permite alternancia com IDLE0, inclusive durante TLS.
+  // Nao desabilita watchdog nem verificacao do certificado TLS.
   if(xTaskCreatePinnedToCore(cloudTask,"cloud",16384,nullptr,tskIDLE_PRIORITY,nullptr,0)!=pdPASS)
     Serial.println("ERRO_CRIAR_CLOUD_TASK");
-  Serial.println("AUTOTEMP_LOCAL_OK. Comandos ou CONFIG JSON no monitor serial.");
+  Serial.println("AUTOTEMP_LOCAL_OK. Botoes: TEMP+, TEMP-, RAPIDO e NORMAL.");
+  Serial.println("AWS alerta somente quando /command remoto for bloqueado.");
 }
 
 void loop() {
   static unsigned long lastTick=0,lastPrint=0;
   static bool was[4]={false,false,false,false};
   static bool ack=false;
-  int pins[4]={ATTACK,DOOR,SENSOR,ACK};
+  int pins[4]={TEMP_UP,TEMP_DOWN,FAST_FREEZE,NORMAL_MODE};
   for(int i=0;i<4;i++) {
     bool down=digitalRead(pins[i])==LOW;
     if(down && !was[i]) {
-      if(i==0) handleLine("ATTACK");
-      if(i==1) handleLine("DOOR");
-      if(i==2) handleLine("SENSOR");
-      if(i==3) ack=true;
+      if(i==0) localSetpoint(requested+0.5);
+      if(i==1) localSetpoint(requested-0.5);
+      if(i==2) localSetpoint(-23,true);
+      if(i==3) localSetpoint(-19,false);
     }
     was[i]=down;
   }
+  // Limite por ciclo: uma colagem grande nao paralisa o controle.
   for(int n=0;n<256 && Serial.available();n++) {
     char ch=Serial.read();
     if(ch=='\n') { ack=handleLine(serialLine)||ack; serialLine=""; }
@@ -492,15 +510,18 @@ void loop() {
     lastTick=millis();
     xSemaphoreTake(mutex,portMAX_DELAY);
     bool bad=pendingBad; pendingBad=false;
+    bool remoteCommand=pendingRemoteCommand; pendingRemoteCommand=false;
     if(pending) {
       requested=pendingTarget; requestDefrost=pendingDefrost;
+      fastFreeze=false;
       requestAt=millis(); pending=false;
     }
     xSemaphoreGive(mutex);
-    if(millis()-requestAt>60000) { requested=-19; requestDefrost=false; }
+    if(fastFreeze && millis()-requestAt>120000UL) localSetpoint(-19,false);
+    if(millis()-requestAt>60000 && !fastFreeze) { requested=-19; requestDefrost=false; }
     Output o=guard.update(plant,requested,requestDefrost,bad,ack);
     ack=false;
-    recordProtection(o);
+    recordProtection(o,remoteCommand);
     plant.comp=o.comp; plant.fan=o.fan; plant.heat=o.heat;
     digitalWrite(GREEN,!o.locked && o.valid);
     digitalWrite(AMBER,!connected); digitalWrite(RED,o.locked);
@@ -512,6 +533,8 @@ void loop() {
     d["locked"]=o.locked; d["valid"]=o.valid;
     d["compressor"]=o.comp; d["fan"]=o.fan; d["defrost"]=o.heat;
     d["door"]=plant.door;
+    d["setpoint"]=requested;
+    d["fast_freeze"]=fastFreeze;
     xSemaphoreTake(mutex,portMAX_DELAY);
     serializeJson(d,snapshot,sizeof(snapshot));
     xSemaphoreGive(mutex);

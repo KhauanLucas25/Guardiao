@@ -1,0 +1,17 @@
+{
+  "Version": "2012-10-17",
+  "Statement": [
+    {
+      "Sid": "GravarAlertasNaTabelaGuardiao",
+      "Effect": "Allow",
+      "Action": "dynamodb:PutItem",
+      "Resource": "arn:aws:dynamodb:us-east-2:ACCOUNT_ID:table/guardiao"
+    },
+    {
+      "Sid": "EnviarEmailDeProtecao",
+      "Effect": "Allow",
+      "Action": "sns:Publish",
+      "Resource": "arn:aws:sns:us-east-2:ACCOUNT_ID:guardiao-protection-alerts"
+    }
+  ]
+}

@@ -1,6 +1,6 @@
 {
   "version": 1,
-  "author": "AutoTemp Guard Cloud R4 OLED",
+  "author": "AutoTemp Guard R7 - Controles locais e protecao remota",
   "editor": "wokwi",
   "parts": [
     { "type": "board-esp32-devkit-c-v4", "id": "esp", "top": 0, "left": 0, "attrs": {} },
@@ -57,28 +57,28 @@
       "id": "b0",
       "top": 280,
       "left": 0,
-      "attrs": { "color": "blue", "label": "Ataque", "bounce": "0" }
+      "attrs": { "color": "blue", "label": "Temp +", "bounce": "0" }
     },
     {
       "type": "wokwi-pushbutton",
       "id": "b1",
       "top": 280,
       "left": 100,
-      "attrs": { "color": "blue", "label": "Porta", "bounce": "0" }
+      "attrs": { "color": "blue", "label": "Temp -", "bounce": "0" }
     },
     {
       "type": "wokwi-pushbutton",
       "id": "b2",
       "top": 280,
       "left": 200,
-      "attrs": { "color": "blue", "label": "Sensor", "bounce": "0" }
+      "attrs": { "color": "green", "label": "Congelar rapido", "bounce": "0" }
     },
     {
       "type": "wokwi-pushbutton",
       "id": "b3",
       "top": 280,
       "left": 300,
-      "attrs": { "color": "blue", "label": "Reconhecer", "bounce": "0" }
+      "attrs": { "color": "gray", "label": "Normal", "bounce": "0" }
     },
     {
       "type": "board-ssd1306",

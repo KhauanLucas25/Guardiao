@@ -1,0 +1,1 @@
+SELECT *, topic() AS mqtt_topic FROM 'autotemp/f01/alerts'
