@@ -8,7 +8,7 @@ dynamodb = boto3.resource("dynamodb")
 
 ALLOWED_ORIGIN = "https://guardiao-dashboard.vercel.app"
 
-# Somente estes grupos Cognito podem consultar o dashboard.
+# Grupos Cognito autorizados a usar o dashboard.
 ALLOWED_GROUPS = {"ADMIN_EMPRESA", "SOC_GUARDIAO"}
 
 
@@ -33,7 +33,7 @@ def make_response(status_code, body):
 
 def get_user_groups(event):
     """
-    Lê os grupos confiáveis do token JWT já validado pelo API Gateway.
+    Obtém grupos do JWT que já foi validado pelo API Gateway.
     """
     claims = (
         event.get("requestContext", {})
@@ -44,7 +44,6 @@ def get_user_groups(event):
 
     groups_raw = claims.get("cognito:groups", [])
 
-    # A AWS pode entregar o claim como lista ou texto.
     if isinstance(groups_raw, list):
         return set(groups_raw)
 
@@ -62,8 +61,6 @@ def lambda_handler(event, context):
     method = event.get("requestContext", {}).get("http", {}).get("method", "GET")
     path = event.get("rawPath", "/incidents")
 
-    # O API Gateway responde ao preflight, mas esta resposta mantém
-    # compatibilidade caso OPTIONS alcance a Lambda.
     if method == "OPTIONS":
         return make_response(204, {})
 
@@ -72,8 +69,6 @@ def lambda_handler(event, context):
             "message": "Método não permitido."
         })
 
-    # O JWT já foi validado pelo autorizador do API Gateway.
-    # Aqui é aplicada a autorização por grupo.
     user_groups = get_user_groups(event)
 
     if not user_groups.intersection(ALLOWED_GROUPS):
@@ -84,12 +79,15 @@ def lambda_handler(event, context):
         })
 
     try:
+        # A empresa é definida pela variável da Lambda.
+        # O navegador não pode escolher a empresa consultada.
+        company_id = os.environ["COMPANY_ID"]
+
         # Rota: GET /devices
         if path == "/devices":
             devices_table = dynamodb.Table(
                 os.environ["DEVICES_TABLE_NAME"]
             )
-            company_id = os.environ["COMPANY_ID"]
 
             result = devices_table.query(
                 KeyConditionExpression=Key("company_id").eq(company_id)
@@ -113,9 +111,12 @@ def lambda_handler(event, context):
             result = alerts_table.scan(Limit=100)
             items = result.get("Items", [])
 
+            # Exibe somente alertas da empresa configurada.
+            # Eventos antigos, sem company_id, não são exibidos por segurança.
             alerts = [
                 item for item in items
                 if item.get("source") == "AWS_IOT_CORE"
+                and item.get("company_id") == company_id
             ]
 
             alerts.sort(
@@ -127,6 +128,7 @@ def lambda_handler(event, context):
             )
 
             return make_response(200, {
+                "company_id": company_id,
                 "count": len(alerts),
                 "items": alerts
             })
